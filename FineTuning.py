@@ -1,3 +1,169 @@
+from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer
+from datasets import load_dataset
+from peft import get_peft_model, LoraConfig, TaskType
+
+# Load model and tokenizer
+model_name = "mistralai/Mistral-7B-Instruct-v0.2"
+tokenizer = AutoTokenizer.from_pretrained(model_name)
+model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto")
+
+# Load your dataset (fine-tuning data)
+dataset = load_dataset("json", data_files="Unsloth_data.jsonl", split="train")
+
+# Prepare for PEFT
+lora_config = LoraConfig(
+    r=8, 
+    lora_alpha=32, 
+    lora_dropout=0.1, 
+    task_type=TaskType.CAUSAL_LM
+)
+peft_model = get_peft_model(model, lora_config)
+
+# Set up training arguments
+training_args = TrainingArguments(
+    output_dir="./mistral7b-podcast-finetune",
+    per_device_train_batch_size=1,
+    gradient_accumulation_steps=4,
+    num_train_epochs=2,
+    logging_steps=10,
+    learning_rate=2e-4,
+    save_strategy="epoch",
+    save_total_limit=1,
+    report_to="none",
+    fp16=False  # Disabled FP16 for CPU
+)
+
+# Set up the Trainer
+trainer = Trainer(
+    model=peft_model,
+    args=training_args,
+    train_dataset=dataset,
+    tokenizer=tokenizer
+)
+
+# Start fine-tuning
+trainer.train()
+
+# Save the model after training
+peft_model.save_pretrained("mistral7b-podcast-finetune")
+tokenizer.save_pretrained("mistral7b-podcast-finetune")
+
+
+# from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer
+# from datasets import load_dataset
+# from peft import get_peft_model, LoraConfig, TaskType
+# import os
+# import logging
+
+# # Set logging to debug level
+# logging.basicConfig(level=logging.DEBUG)
+
+# # Ensure output directory exists
+# output_dir = "mistral7b-podcast-finetune"
+# if not os.path.exists(output_dir):
+#     os.makedirs(output_dir)
+
+# # Check for NVIDIA GPU
+# if torch.cuda.is_available():
+#     from unsloth import FastLanguageModel
+
+#     # Load with Unsloth's fast loading and 4bit quantization
+#     print("Loading model with Unsloth fast loading...")
+#     model, tokenizer = FastLanguageModel.from_pretrained(
+#         model_name="mistralai/Mistral-7B-Instruct-v0.2",
+#         max_seq_length=2048,  # Adjust as needed
+#         load_in_4bit=True,  # Enable 4-bit quantization
+#     )
+#     print("Model loaded with Unsloth.")
+
+#     lora_config = LoraConfig(
+#         r=8,
+#         lora_alpha=32,
+#         lora_dropout=0.1,
+#         target_modules=["q_proj", "v_proj", "k_proj", "o_proj", "gate_proj", "down_proj", "up_proj"],
+#         bias="none",
+#         task_type="CAUSAL_LM",
+#     )
+
+#     model = FastLanguageModel.get_peft_model(model, lora_config)
+#     model = FastLanguageModel.for_inference(model)
+
+#     print("Setting up trainer...")
+#     trainer = FastLanguageModel.get_trainer(
+#         model=model,
+#         tokenizer=tokenizer,
+#         dataset=load_dataset("json", data_files="Unsloth_data.jsonl", split="train"),
+#         output_dir=output_dir,
+#         max_seq_length=2048,
+#         per_device_train_batch_size=1,
+#         gradient_accumulation_steps=4,
+#         learning_rate=2e-4,
+#         num_train_epochs=2,
+#         save_strategy="epoch",
+#         save_total_limit=1,
+#         logging_steps=10,
+#     )
+
+# else:
+#     # CPU fallback (very slow)
+#     model_name = "mistralai/Mistral-7B-Instruct-v0.2"
+#     print("Loading model from Hugging Face...")
+#     tokenizer = AutoTokenizer.from_pretrained(model_name)
+#     model = AutoModelForCausalLM.from_pretrained(model_name)
+#     print("Model loaded from Hugging Face.")
+
+#     # Check model loading
+#     inputs = tokenizer("This is a test input", return_tensors="pt")
+#     with torch.no_grad():
+#         outputs = model.generate(inputs['input_ids'])
+#     print("Model inference test successful, generated output:", tokenizer.decode(outputs[0]))
+
+#     lora_config = LoraConfig(
+#         r=8,
+#         lora_alpha=32,
+#         lora_dropout=0.1,
+#         task_type=TaskType.CAUSAL_LM,
+#     )
+
+#     model = get_peft_model(model, lora_config)
+
+#     # Loading the dataset and printing the first 5 entries to verify
+#     dataset = load_dataset("json", data_files="Unsloth_data.jsonl", split="train")
+#     print("Dataset loaded:", dataset[:5])  # Print first 5 data entries
+
+#     print("Setting up trainer...")
+#     trainer = Trainer(
+#         model=model,
+#         args=TrainingArguments(
+#             output_dir=output_dir,
+#             per_device_train_batch_size=1,
+#             gradient_accumulation_steps=4,
+#             num_train_epochs=2,
+#             learning_rate=2e-4,
+#             save_strategy="epoch",
+#             save_total_limit=1,
+#             report_to="none",
+#             logging_steps=10,
+#             fp16=False,
+#             load_best_model_at_end=True,
+#             no_cuda=True,
+#         ),
+#         train_dataset=dataset,
+#         tokenizer=tokenizer,
+#     )
+
+#     print("Starting training...")
+#     try:
+#         trainer.train()
+#         print("Training finished.")
+#     except Exception as e:
+#         print(f"Error during training: {e}")
+
+#     model.save_pretrained(output_dir)
+#     tokenizer.save_pretrained(output_dir)
+#     print("Model and tokenizer saved!")
+
+
 
 # I am saving this file of code for future purpose if i had pricing on Groq or other llm to host i would have used this code but i am keeping 
 # this for future use case to study or practise . but i did learn how to fine tune using hostin g platrfomrs.
