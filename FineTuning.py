@@ -1,3 +1,4 @@
+
 # I am saving this file of code for future purpose if i had pricing on Groq or other llm to host i would have used this code but i am keeping 
 # this for future use case to study or practise . but i did learn how to fine tune using hostin g platrfomrs.
 

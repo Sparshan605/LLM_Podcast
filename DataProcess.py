@@ -2,19 +2,57 @@ import json
 import re
 import os
 
-# Path to the folder containing transcript JSON files
+
 file_dir = "transcripts"
-
 # List to store all conversation data
-conversation_data = []
+all_conversation_data = []
 
-# Function to convert timestamps to seconds
-def tStamps(time_str):
-    match = re.match(r"(\d+):(\d+)", time_str)
-    if match:
-        minutes, seconds = map(int, match.groups())
-        return minutes * 60 + seconds
-    return None
+def process_transcript(transcript):
+    time_text_pairs = []
+    for i in range(0, len(transcript), 2):
+        if i+1 < len(transcript):
+            time_text_pairs.append((transcript[i], transcript[i+1]))
+    
+    # Now detect speaker changes based on context and language patterns
+    conversations = []
+    current_speaker = "host"  # Assume starting with host
+    current_utterance = ""
+    
+    # Common speaker change indicators
+    speaker_change_patterns = [
+        r"\byeah\b.*\bbut\b", 
+        r"\babsolutely\b", 
+        r"\bI mean\b",
+        r"\byou know\b",
+        r"\blike\b.*\bI\b"
+    ]
+    
+    for _, text in time_text_pairs:
+        change_detected = False
+        
+        # Look for explicit dialogue indicators or question-response patterns
+        if re.search(r"\?", current_utterance) and not re.search(r"\?", text[:20]):
+            change_detected = True
+        
+        # Look for speaker change patterns
+        for pattern in speaker_change_patterns:
+            if re.search(pattern, text[:30]):  # Check start of new segment
+                change_detected = True
+                break
+        
+        # If we detect a likely speaker change
+        if change_detected and current_utterance:
+            conversations.append({"role": current_speaker, "content": current_utterance.strip()})
+            current_speaker = "guest" if current_speaker == "host" else "host"
+            current_utterance = text
+        else:
+            current_utterance += " " + text
+    
+    # Add the final utterance
+    if current_utterance:
+        conversations.append({"role": current_speaker, "content": current_utterance.strip()})
+    
+    return conversations
 
 # Loop through all JSON files in the directory
 for filename in os.listdir(file_dir):
@@ -22,43 +60,29 @@ for filename in os.listdir(file_dir):
     if os.path.isfile(file_path) and filename.endswith(".json"):
         with open(file_path, "r", encoding="utf-8") as file:
             raw_data = json.load(file)
-
-
-        # Extract timestamps and dialogues
-        timestamps = [tStamps(raw_data[i]) for i in range(0, len(raw_data), 2)]
-        dialogues = [raw_data[i] for i in range(1, len(raw_data), 2)]
-
-        # Calculate the average gap between timestamps
-        time_gaps = [timestamps[i] - timestamps[i - 1] for i in range(1, len(timestamps)) if timestamps[i] and timestamps[i - 1]]
-        average_gap = sum(time_gaps) / len(time_gaps) if time_gaps else 5  # Default 5 sec
-
-        # Assign speaker roles
-        formatted_data = []
-        current_speaker = "host"  # Assume the first speaker is always the host
-
-        for i in range(len(dialogues)):
-            if i > 0 and timestamps[i] and timestamps[i - 1]:  # Check timestamps
-                if timestamps[i] - timestamps[i - 1] > average_gap:
-                    current_speaker = "guest" if current_speaker == "host" else "host"
-
-            formatted_data.append({"role": current_speaker, "content": dialogues[i]})
-
-        # Structure for fine-tuning OpenAI API
-        for i in range(len(formatted_data) - 1):
-            if formatted_data[i]["role"] == "host" and formatted_data[i + 1]["role"] == "guest":
-                entry = {
-                    "messages": [
-                        {"role": "system", "content": "You are an AI that generates engaging podcast scripts like Joe Rogan."},
-                        {"role": "user", "content": f"Host: {formatted_data[i]['content']}"},
-                        {"role": "assistant", "content": f"Guest: {formatted_data[i + 1]['content']}"}
-                    ]
-                }
-                conversation_data.append(entry)
+        
+        # Process the transcript to get conversational turns
+        conversations = process_transcript(raw_data)
+        
+        # Create prompt-response pairs
+        for i in range(len(conversations) - 1):
+            if conversations[i]["role"] == "host" and conversations[i + 1]["role"] == "guest":
+                host_text = conversations[i]["content"]
+                guest_text = conversations[i + 1]["content"]
+                
+                # Filter out very short utterances
+                if len(host_text.split()) >= 10 and len(guest_text.split()) >= 10:
+                    all_conversation_data.append({
+                        "instruction": "Generate a podcast guest response in the style of Joe Rogan's guests",
+                        "input": host_text,
+                        "output": guest_text
+                    })
 
 # Save processed data to JSONL file
 output_file = "fine_tune_data.jsonl"
 with open(output_file, "w", encoding="utf-8") as f:
-    for item in conversation_data:
+    for item in all_conversation_data:
         f.write(json.dumps(item) + "\n")
 
 print(f"Data processing success! File saved as {output_file}")
+print(f"Total examples generated: {len(all_conversation_data)}")
