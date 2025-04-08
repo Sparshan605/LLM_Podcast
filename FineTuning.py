@@ -1,39 +1,60 @@
-from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer
+import torch
+from transformers import (
+    AutoTokenizer,
+    AutoModelForCausalLM,
+    BitsAndBytesConfig,
+    TrainingArguments,
+    Trainer
+)
 from datasets import load_dataset
 from peft import get_peft_model, LoraConfig, TaskType
 
-# Load model and tokenizer
+# Load tokenizer
 model_name = "mistralai/Mistral-7B-Instruct-v0.2"
 tokenizer = AutoTokenizer.from_pretrained(model_name)
-model = AutoModelForCausalLM.from_pretrained(model_name, device_map="auto")
 
-# Load your dataset (fine-tuning data)
+# 4-bit quantization config
+bnb_config = BitsAndBytesConfig(
+    load_in_4bit=True,
+    bnb_4bit_quant_type="nf4",
+    bnb_4bit_use_double_quant=True,
+    bnb_4bit_compute_dtype=torch.bfloat16  # or torch.float16
+)
+
+# Load model with quantization
+model = AutoModelForCausalLM.from_pretrained(
+    model_name,
+    quantization_config=bnb_config,
+    device_map="auto"
+)
+
+# Load dataset
 dataset = load_dataset("json", data_files="Unsloth_data.jsonl", split="train")
 
-# Prepare for PEFT
+# LoRA config
 lora_config = LoraConfig(
-    r=8, 
-    lora_alpha=32, 
-    lora_dropout=0.1, 
+    r=8,
+    lora_alpha=32,
+    lora_dropout=0.05,
     task_type=TaskType.CAUSAL_LM
 )
 peft_model = get_peft_model(model, lora_config)
 
-# Set up training arguments
+# Training arguments
 training_args = TrainingArguments(
     output_dir="./mistral7b-podcast-finetune",
     per_device_train_batch_size=1,
-    gradient_accumulation_steps=4,
+    gradient_accumulation_steps=8,  # simulate bigger batch size
     num_train_epochs=2,
-    logging_steps=10,
     learning_rate=2e-4,
     save_strategy="epoch",
     save_total_limit=1,
     report_to="none",
-    fp16=False  # Disabled FP16 for CPU
+    fp16=True,
+    logging_steps=10
 )
 
-# Set up the Trainer
+# Trainer
 trainer = Trainer(
     model=peft_model,
     args=training_args,
@@ -41,10 +62,10 @@ trainer = Trainer(
     tokenizer=tokenizer
 )
 
-# Start fine-tuning
+# Train
 trainer.train()
 
-# Save the model after training
+# Save model
 peft_model.save_pretrained("mistral7b-podcast-finetune")
 tokenizer.save_pretrained("mistral7b-podcast-finetune")
 
